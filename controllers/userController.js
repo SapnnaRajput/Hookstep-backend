@@ -1441,20 +1441,40 @@ const processVideoLink = asyncHandler(async (req, res) => {
 }); 
 
 
-const BASE_URL = 'https://artist.genixbit.com/api/';
 
+
+// getAllCountries implementation using REST Countries API
 const getAllCountries = asyncHandler(async (req, res) => {
     try {
-        const response = await axios.get(`${BASE_URL}getAllCountries`);
-        res.json(response.data);
+        // Using REST Countries API - a free public API
+        const response = await axios.get('https://restcountries.com/v3.1/all?fields=name,cca2');
+        
+        // Transform the data to match the expected format in your frontend
+        const allCountries = response.data.map(country => ({
+            id: country.cca2,
+            name: country.name.common,
+            // Add any other fields your frontend expects
+        }));
+        
+        // Sort countries alphabetically by name
+        allCountries.sort((a, b) => a.name.localeCompare(b.name));
+        
+        res.json({
+            success: true,
+            allCountries: allCountries
+        });
     } catch (error) {
-        res.status(error.response?.status || 500).json({
+        console.error('Error fetching countries:', error);
+        res.status(500).json({
             success: false,
-            message: error.response?.data?.message || "Failed to fetch countries",
+            message: "Failed to fetch countries",
         });
     }
 });
 
+
+
+// New getStatesByCountry implementation using CountriesNow API
 const getStatesByCountry = asyncHandler(async (req, res) => {
     try {
         const { countryId } = req.params;
@@ -1463,17 +1483,55 @@ const getStatesByCountry = asyncHandler(async (req, res) => {
             res.status(400);
             throw new Error('Country ID is required');
         }
-
-        const response = await axios.get(`${BASE_URL}getState/${countryId}`);
-        res.json(response.data);
+        
+        // Get the country name from the country code
+        // CountriesNow API requires the country name, not the code
+        const countryResponse = await axios.get('https://restcountries.com/v3.1/alpha/' + countryId);
+        if (!countryResponse.data || countryResponse.data.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Country not found",
+            });
+        }
+        
+        const countryName = countryResponse.data[0].name.common;
+        
+        // Call CountriesNow API to get states for the country
+        const response = await axios.post('https://countriesnow.space/api/v0.1/countries/states', {
+            country: countryName
+        });
+        
+        if (response.data.error) {
+            return res.status(404).json({
+                success: false,
+                message: response.data.msg || "Failed to fetch states",
+            });
+        }
+        
+        // Transform the data to match the expected format in your frontend
+        const states = response.data.data.states.map(state => ({
+            id: `${countryId}-${state.state_code || state.name.substring(0, 3).toUpperCase()}`,
+            name: state.name,
+            state_code: state.state_code || null
+        }));
+        
+        res.json({
+            success: true,
+            states: states
+        });
+        
     } catch (error) {
-        res.status(error.response?.status || 500).json({
+        console.error('Error fetching states:', error);
+        res.status(500).json({
             success: false,
-            message: error.response?.data?.message || "Failed to fetch states",
+            message: "Failed to fetch states",
         });
     }
 });
 
+
+
+// New getCitiesByState implementation using CountriesNow API
 const getCitiesByState = asyncHandler(async (req, res) => {
     try {
         const { stateId } = req.params;
@@ -1482,13 +1540,86 @@ const getCitiesByState = asyncHandler(async (req, res) => {
             res.status(400);
             throw new Error('State ID is required');
         }
-
-        const response = await axios.get(`${BASE_URL}getCity/${stateId}`);
-        res.json(response.data);
+        
+        // Parse the state ID to get country code and state name
+        // Format is expected to be like 'US-NY' where US is country code
+        const parts = stateId.split('-');
+        if (parts.length < 2) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid state ID format. Expected format: 'COUNTRYCODE-STATECODE'"
+            });
+        }
+        
+        const countryCode = parts[0];
+        
+        // Get the country name from the country code
+        const countryResponse = await axios.get('https://restcountries.com/v3.1/alpha/' + countryCode);
+        if (!countryResponse.data || countryResponse.data.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Country not found",
+            });
+        }
+        
+        const countryName = countryResponse.data[0].name.common;
+        
+        // Get the state name from our states API
+        const statesResponse = await axios.post('https://countriesnow.space/api/v0.1/countries/states', {
+            country: countryName
+        });
+        
+        if (statesResponse.data.error) {
+            return res.status(404).json({
+                success: false,
+                message: statesResponse.data.msg || "Failed to fetch states",
+            });
+        }
+        
+        // Find the state by its ID
+        const stateInfo = statesResponse.data.data.states.find(state => {
+            // Check if state code matches or if the first 3 chars of state name match the code part
+            const stateCodeInId = parts.slice(1).join('-');
+            return (state.state_code && state.state_code === stateCodeInId) || 
+                   state.name.substring(0, 3).toUpperCase() === stateCodeInId;
+        });
+        
+        if (!stateInfo) {
+            return res.status(404).json({
+                success: false,
+                message: "State not found",
+            });
+        }
+        
+        // Call CountriesNow API to get cities for the state
+        const response = await axios.post('https://countriesnow.space/api/v0.1/countries/state/cities', {
+            country: countryName,
+            state: stateInfo.name
+        });
+        
+        if (response.data.error) {
+            return res.status(404).json({
+                success: false,
+                message: response.data.msg || "Failed to fetch cities",
+            });
+        }
+        
+        // Transform the data to match the expected format in your frontend
+        const cities = response.data.data.map((cityName, index) => ({
+            id: `${stateId}-${index}`,
+            name: cityName
+        }));
+        
+        res.json({
+            success: true,
+            cities: cities
+        });
+        
     } catch (error) {
-        res.status(error.response?.status || 500).json({
+        console.error('Error fetching cities:', error);
+        res.status(500).json({
             success: false,
-            message: error.response?.data?.message || "Failed to fetch cities",
+            message: "Failed to fetch cities",
         });
     }
 });

@@ -7,6 +7,10 @@ const tokenRoutes = require('./routes/tokenRoutes')
 const mediaRoutes = require('./routes/mediaRoutes')
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 const cors = require("cors");
+const{exec} = require("child_process");
+const fetch = require("node-fetch");
+const { stdout, stderr } = require("process");
+
 
 dotenv.config();
 ConnectDB()
@@ -22,6 +26,7 @@ app.use('/api/user',userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/token', tokenRoutes);
 app.use('/api/media', mediaRoutes);
+
 
 app.use(notFound)
 app.use(errorHandler)

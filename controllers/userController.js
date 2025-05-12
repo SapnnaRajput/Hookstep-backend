@@ -10,6 +10,7 @@ const Designation = require("../models/designationModels");
 const Video= require("../models/videoModels")
 const axios = require('axios');
 const useragent = require('express-useragent');
+const { exec } = require("child_process");
 // const youtubedl = require('youtube-dl-exec');
 // const { InstagramAPI } = require('instagram-private-api');
 // const FB = require('fb');
@@ -1673,8 +1674,27 @@ const getAllVideos = asyncHandler(async (req, res) => {
     }
 });
 
+const extractVideoUrl = (req, res) => {
+    const videoUrl = req.query.url;
+    if (!videoUrl) return res.status(400).json({ error: "Missing video URL" });
+
+    exec(`yt-dlp -g "${videoUrl}"`, (error, stdout, stderr) => {
+        if (error) {
+            console.error("yt-dlp error:", stderr || error);
+            return res.status(500).json({ error: "Failed to extract video link" });
+        }
+
+        const directLinks = stdout.trim().split("\n");
+        const result = directLinks.length === 2
+            ? { video: directLinks[0], audio: directLinks[1] }
+            : { url: directLinks[0] };
+
+        res.json(result);
+    });
+};
+
 
 module.exports = { registerUser, authUser, allUsersBySearch, getUserDetails, deleteUserDetails, addVideoLink, updateUserById, getVideoLinkDetails, sendEmail, verifyOtpEmail,
     sendOTPSignup, verifyOTPSignup, sendOTPLogin, verifyOTPLogin, processVideoLink, newSignup, newSignupVerify, newLogin, sendOTPEmail, resetPassword, getAllCountries,getStatesByCountry, 
-    getCitiesByState, getDesignationList, getAllVideos 
+    getCitiesByState, getDesignationList, getAllVideos , extractVideoUrl
  };

@@ -1674,17 +1674,55 @@ const getAllVideos = asyncHandler(async (req, res) => {
     }
 });
 
+// const extractVideoUrl = (req, res) => {
+//     const videoUrl = req.query.url;
+//     if (!videoUrl) return res.status(400).json({ error: "Missing video URL" });
+
+//     exec(`yt-dlp -g "${videoUrl}"`, (error, stdout, stderr) => {
+//         if (error) {
+//             console.error("yt-dlp error:", stderr || error);
+//             return res.status(500).json({ error: "Failed to extract video link" });
+//         }
+
+//         const directLinks = stdout.trim().split("\n");
+//         const result = directLinks.length === 2
+//             ? { video: directLinks[0], audio: directLinks[1] }
+//             : { url: directLinks[0] };
+
+//         res.json(result);
+//     });
+// };
+
 const extractVideoUrl = (req, res) => {
     const videoUrl = req.query.url;
     if (!videoUrl) return res.status(400).json({ error: "Missing video URL" });
 
-    exec(`yt-dlp -g "${videoUrl}"`, (error, stdout, stderr) => {
+    // Platform-specific arguments
+    let platformArgs = '';
+    if (videoUrl.includes('instagram.com')) {
+        platformArgs = '--extractor-args "instagram:skip=api,web"';
+    } else if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+        platformArgs = '--extractor-args "youtube:skip=webpage" --throttled-rate 100K';
+    }
+
+    exec(`yt-dlp ${platformArgs} --sleep-interval 2 --user-agent "Mozilla/5.0" -g "${videoUrl}"`, (error, stdout, stderr) => {
         if (error) {
             console.error("yt-dlp error:", stderr || error);
-            return res.status(500).json({ error: "Failed to extract video link" });
+            
+            // Enhanced error handling
+            if (stderr.includes('429') || stderr.includes('rate-limit')) {
+                return res.status(429).json({ error: 'Rate limit reached. Try again later.' });
+            } else if (stderr.includes('login required')) {
+                return res.status(403).json({ error: 'Content requires login.' });
+            }
+            return res.status(500).json({ error: "Failed to extract video link", details: stderr || error.message });
         }
 
-        const directLinks = stdout.trim().split("\n");
+        const directLinks = stdout.trim().split("\n").filter(link => link.trim() !== '');
+        if (directLinks.length === 0) {
+            return res.status(404).json({ error: 'No links found' });
+        }
+
         const result = directLinks.length === 2
             ? { video: directLinks[0], audio: directLinks[1] }
             : { url: directLinks[0] };
@@ -1692,6 +1730,7 @@ const extractVideoUrl = (req, res) => {
         res.json(result);
     });
 };
+
 
 
 module.exports = { registerUser, authUser, allUsersBySearch, getUserDetails, deleteUserDetails, addVideoLink, updateUserById, getVideoLinkDetails, sendEmail, verifyOtpEmail,

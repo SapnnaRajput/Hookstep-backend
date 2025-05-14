@@ -1698,177 +1698,49 @@ const getAllVideos = asyncHandler(async (req, res) => {
 //     });
 // };
 
-// const extractVideoUrl = (req, res) => {
-    // const videoUrl = req.query.url;
-    
-    // if (!videoUrl) return res.status(400).json({ error: "Missing video URL" });
+const extractVideoUrl = (req, res) => {
+    const videoUrl = req.query.url;
 
-    // // Platform-specific arguments
-    // let platformArgs = '';
-    // if (videoUrl.includes('instagram.com')) {
-    //     platformArgs = '--extractor-args "instagram:skip=api,web"';
-    // } else if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-    //     platformArgs = '--extractor-args "youtube:skip=webpage" --throttled-rate 100K';
-    // }
+    if (!videoUrl) return res.status(400).json({ error: "Missing video URL" });
 
-    // exec(`yt-dlp ${platformArgs} --sleep-interval 2 --user-agent "Mozilla/5.0" -g "${videoUrl}"`, (error, stdout, stderr) => {
-    //     if (error) {
-    //         console.error("yt-dlp error:", stderr || error);
+    // Platform-specific arguments
+    let platformArgs = '';
+    if (videoUrl.includes('instagram.com')) {
+        platformArgs = '--extractor-args "instagram:skip=api,web"';
+    } else if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+        platformArgs = '--extractor-args "youtube:skip=webpage" --throttled-rate 100K';
+    }
+
+    exec(`yt-dlp ${platformArgs} --sleep-interval 2 --user-agent "Mozilla/5.0" -g "${videoUrl}"`, (error, stdout, stderr) => {
+        if (error) {
+            console.error("yt-dlp error:", stderr || error);
             
-    //         // Enhanced error handling
-    //         if (stderr.includes('429') || stderr.includes('rate-limit')) {
-    //             return res.status(429).json({ error: 'Rate limit reached. Try again later.' });
-    //         } else if (stderr.includes('login required')) {
-    //             return res.status(403).json({ error: 'Content requires login.' });
-    //         }
-    //         return res.status(500).json({ error: "Failed to extract video link", details: stderr || error.message });
-    //     }
-
-    //     const directLinks = stdout.trim().split("\n").filter(link => link.trim() !== '');
-    //     if (directLinks.length === 0) {
-    //         return res.status(404).json({ error: 'No links found' });
-    //     }
-
-    //     const result = directLinks.length === 2
-    //         ? { video: directLinks[0], audio: directLinks[1] }
-    //         : { url: directLinks[0] };
-
-    //     res.json(result);
-    // });
-async function refreshCookies() {
-    const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for Render.com
-    });
-    const page = await browser.newPage();
-    
-    try {
-        // Refresh Instagram cookies
-        await refreshInstagramCookies(page);
-        
-        // Refresh YouTube cookies
-        await refreshYouTubeCookies(page);
-        
-        console.log('Cookies refreshed successfully');
-    } catch (error) {
-        console.error('Cookie refresh failed:', error);
-    } finally {
-        await browser.close();
-    }
-}
-
-async function refreshInstagramCookies(page) {
-    await page.goto('https://www.instagram.com/accounts/login/', { waitUntil: 'networkidle2' });
-    await page.type('input[name="username"]', process.env.IG_USERNAME);
-    await page.type('input[name="password"]', process.env.IG_PASSWORD);
-    await page.click('button[type="submit"]');
-    await page.waitForNavigation();
-    await page.goto('https://www.instagram.com', { waitUntil: 'networkidle2' });
-    const cookies = await page.cookies();
-    saveCookies(cookies, 'instagram');
-}
-
-async function refreshYouTubeCookies(page) {
-    await page.goto('https://accounts.google.com/ServiceLogin?service=youtube', { waitUntil: 'networkidle2' });
-    await page.type('input[type="email"]', process.env.YT_EMAIL);
-    await page.click('#identifierNext');
-    await page.waitForSelector('input[type="password"]', { visible: true });
-    await page.type('input[type="password"]', process.env.YT_PASSWORD);
-    await page.click('#passwordNext');
-    await page.waitForNavigation();
-    await page.goto('https://youtube.com', { waitUntil: 'networkidle2' });
-    const cookies = await page.cookies();
-    saveCookies(cookies, 'youtube');
-}
-
-function saveCookies(cookies, platform) {
-    const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    const existingCookies = fs.existsSync('cookies.txt') ? fs.readFileSync('cookies.txt', 'utf8') : '';
-    fs.writeFileSync('cookies.txt', `${existingCookies}\n# ${platform} cookies\n${cookieString}\n`);
-}
-
-// Schedule cookie refresh every 7 days
-setInterval(refreshCookies, 7 * 24 * 60 * 60 * 1000);
-// Initial refresh
-refreshCookies().catch(console.error);
-
-// Main video extraction function
-const extractVideoUrl = async (req, res) => {
-    try {
-        const videoUrl = req.query.url;
-        if (!videoUrl) return res.status(400).json({ error: "Missing video URL" });
-
-        const cookiesPath = path.join(__dirname, 'cookies.txt');
-        
-        let platformArgs = '';
-        if (videoUrl.includes('instagram.com')) {
-            platformArgs = `--cookies ${cookiesPath} --force-generic-extractor`;
-        } else if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-            platformArgs = `--cookies ${cookiesPath} --extractor-args "youtube:skip=webpage"`;
-        } else if (videoUrl.includes('facebook.com')) {
-            platformArgs = `--cookies ${cookiesPath} --force-generic-extractor --referer "https://www.facebook.com/"`;
-        }
-
-        // Add retry logic
-        let attempts = 0;
-        const maxAttempts = 3;
-        let lastError;
-
-        while (attempts < maxAttempts) {
-            try {
-                const { stdout } = await execPromise(
-                    `yt-dlp ${platformArgs} --sleep-interval 5 --user-agent "Mozilla/5.0" -g "${videoUrl}"`,
-                    { timeout: 25000 }
-                );
-
-                const directLinks = stdout.trim().split("\n").filter(link => link.trim() !== '');
-                if (directLinks.length === 0) {
-                    return res.status(404).json({ error: 'No links found' });
-                }
-
-                return res.json({
-                    video: directLinks[0],
-                    audio: directLinks[1] || null
-                });
-            } catch (error) {
-                lastError = error;
-                attempts++;
-                if (attempts < maxAttempts) {
-                    await new Promise(resolve => setTimeout(resolve, 2000 * attempts));
-                    continue;
-                }
-                throw error;
+            // Enhanced error handling
+            if (stderr.includes('429') || stderr.includes('rate-limit')) {
+                return res.status(429).json({ error: 'Rate limit reached. Try again later.' });
+            } else if (stderr.includes('login required')) {
+                return res.status(403).json({ error: 'Content requires login.' });
             }
+            return res.status(500).json({ error: "Failed to extract video link", details: stderr || error.message });
         }
 
-    } catch (error) {
-        console.error("Error:", error);
-        
-        if (error.message.includes('429')) {
-            return res.status(429).json({ error: 'Rate limit exceeded. Try again later.' });
+        const directLinks = stdout.trim().split("\n").filter(link => link.trim() !== '');
+        if (directLinks.length === 0) {
+            return res.status(404).json({ error: 'No links found' });
         }
-        
-        if (error.message.includes('login required') || error.message.includes('cookies')) {
-            // Trigger immediate cookie refresh if cookies are invalid
-            refreshCookies().catch(console.error);
-            return res.status(401).json({ 
-                error: "Authentication required",
-                details: "Our system is refreshing credentials. Please try again in 2 minutes."
-            });
-        }
-        
-        return res.status(500).json({ 
-            error: "Failed to extract video link",
-            details: error.stderr || error.message 
-        });
-    }
-};
 
+        const result = directLinks.length === 2
+            ? { video: directLinks[0], audio: directLinks[1] }
+            : { url: directLinks[0] };
+
+        res.json(result);
+    });
+}
 
 
 
 
 module.exports = { registerUser, authUser, allUsersBySearch, getUserDetails, deleteUserDetails, addVideoLink, updateUserById, getVideoLinkDetails, sendEmail, verifyOtpEmail,
     sendOTPSignup, verifyOTPSignup, sendOTPLogin, verifyOTPLogin, processVideoLink, newSignup, newSignupVerify, newLogin, sendOTPEmail, resetPassword, getAllCountries,getStatesByCountry, 
-    getCitiesByState, getDesignationList, getAllVideos ,  extractVideoUrl, refreshCookies
+    getCitiesByState, getDesignationList, getAllVideos ,  extractVideoUrl
  };

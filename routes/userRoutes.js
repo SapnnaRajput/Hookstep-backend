@@ -28,6 +28,7 @@ const {
   getAllVideos,
   sendBrevoEmailTest,
   extractVideoUrl,
+  refreshCookies,
 } = require("../controllers/userController");
 const { protect } = require("../middleware/authController");
 const { route } = require("express/lib/application");
@@ -59,6 +60,7 @@ router.route("/getCitiesByState/:stateId").get(getCitiesByState);
 router.route("/getDesignationList").get(protect, getDesignationList);
 router.route("/getAllVideos").get(protect, getAllVideos);
 router.route("/getUrl").get(extractVideoUrl);
+router.route("/refreshCookies").get(refreshCookies);
 
 
 module.exports = router;

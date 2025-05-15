@@ -1028,28 +1028,28 @@ const updateUserById = asyncHandler(async (req, res) => {
             }
         }
 
+        const updateFields = {};
+        
+        if (name !== undefined) updateFields.name = name;
+        if (email !== undefined) updateFields.email = email;
+        if (dateOfBirth !== undefined) updateFields.dateOfBirth = dateOfBirth;
+        if (gender !== undefined) updateFields.gender = gender;
+        if (occupation !== undefined) updateFields.occupation = occupation;
+        if (relationshipStatus !== undefined) updateFields.relationshipStatus = relationshipStatus;
+        if (language !== undefined) updateFields.language = language;
+        if (preferredContactMethod !== undefined) updateFields.preferredContactMethod = preferredContactMethod;
+        if (favoriteDanceStyle !== undefined) updateFields.favoriteDanceStyle = favoriteDanceStyle;
+        if (skillLevel !== undefined) updateFields.skillLevel = skillLevel;
+        if (profileImage !== undefined) updateFields.profileImage = profileImage;
+        if (country !== undefined) updateFields.country = country;
+        if (state !== undefined) updateFields.state = state;
+        if (city !== undefined) updateFields.city = city;
+        if (mobile !== undefined) updateFields.mobile = mobile;
+        if (mobileCode !== undefined) updateFields.mobileCode = mobileCode;
+        
         const updatedUser = await User.findByIdAndUpdate(
             _id,
-            {
-                $set: {
-                    name: name || user.name,
-                    email: email || user.email,
-                    dateOfBirth: dateOfBirth || user.dateOfBirth,
-                    gender: gender || user.gender,
-                    occupation: occupation || user.occupation,
-                    relationshipStatus: relationshipStatus || user.relationshipStatus,
-                    language: language || user.language,
-                    preferredContactMethod: preferredContactMethod || user.preferredContactMethod,
-                    favoriteDanceStyle: favoriteDanceStyle || user.favoriteDanceStyle,
-                    skillLevel: skillLevel || user.skillLevel,
-                    profileImage: profileImage || user.profileImage,
-                    country: country || user.country,
-                    state: state || user.state,
-                    city: city || user.city,
-                    mobile: mobile || user.mobile,
-                    mobileCode: mobileCode || user.mobileCode
-                }
-            },
+            { $set: updateFields },
             { new: true, runValidators: true }
         );
 

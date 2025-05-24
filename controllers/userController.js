@@ -363,82 +363,73 @@ const newLogin = asyncHandler(async (req, res) => {
 const sendOTPEmail = asyncHandler(async (req, res) => {
     const { email } = req.body;
 
-    console.log(email);
+    console.log('Sending password reset OTP to:', email);
     
     if (!email) {
-        return res.status(400).json({ message: "Email is required" });
-    }
-
-    const user = await User.findOne({ email });
-    if (!user) {
-        return res.status(404).json({ message: "User not found" });
+        return res.status(400).json({ 
+            success: false,
+            message: "Email is required" 
+        });
     }
 
     try {
-        const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        // Check if user exists
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ 
+                success: false,
+                message: "User not found" 
+            });
+        }
 
+        // Generate OTP and set expiry (10 minutes from now)
+        const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+        // Save OTP to database
         await OTP.findOneAndUpdate(
             { email },
-            { email, otp },
+            { email, otp, expiresAt: otpExpiry },
             { upsert: true, new: true }
         );
 
-        const zeptoApiKey = "Zoho-enczapikey PHtE6r1YQuvi2WZ7oEMAsP+7RMagZI9/rO1lJQkV5odEWP4ASU0A/4h+xDK0+houVfNDFqTKnY5pubvJs+mMcWrtMTodWmqyqK3sx/VYSPOZsbq6x00esVQadU3VVYfmct5s3S3UstzaNA==";
-        const templateId = "2518b.45dd43eafd6631e.k1.164810c0-0674-11f0-86c9-525400b0b0f3.195b999abcc";
-        const fromEmail = "donotreply@hookstep.net";
-        const bounceEmail = "donotreply@noreply.hookstep.net";
-        
-        const recipientEmail = email;
-        const recipientName = user.name || "User"; 
-        const teamName = "Support Team";
-        const productName = "HookStep";
-
-        const options = {
-            method: 'POST',
-            url: 'https://api.zeptomail.in/v1.1/email/template',
-            headers: {
-                'accept': 'application/json',
-                'authorization': zeptoApiKey,
-                'cache-control': 'no-cache',
-                'content-type': 'application/json',
-            },
-            data: {
-                template_key: templateId,
-                bounce_address: bounceEmail,
-                from: { address: fromEmail },
-                to: [
-                    {
-                        email_address: { 
-                            address: recipientEmail, 
-                            name: recipientName 
-                        }
-                    }
-                ],
-                merge_info: {
-                    OTP: otp,
-                    name: recipientName,
-                    team: teamName,
-                    product_name: productName
-                }
-            }
+        // Create email content
+        const mailOptions = {
+            from: `"${process.env.MAIL_FROM_NAME}" <${process.env.MAIL_FROM_ADDRESS}>`,
+            to: email,
+            subject: 'Password Reset OTP - HookStep',
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+                    <h2 style="color: #1a73e8;">Password Reset Request</h2>
+                    <p>Hello ${user.name || 'User'},</p>
+                    <p>We received a request to reset your password. Please use the following OTP to proceed:</p>
+                    <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 2px; color: #1a73e8;">
+                        ${otp}
+                    </div>
+                    <p>This OTP is valid for 10 minutes. If you didn't request this, please ignore this email.</p>
+                    <p>Thanks,<br>The HookStep Team</p>
+                    <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;">
+                    <p style="font-size: 12px; color: #777;">This is an automated message, please do not reply to this email.</p>
+                </div>
+            `,
+            text: `Password Reset Request\n\nHello ${user.name || 'User'},\n\nWe received a request to reset your password. Please use the following OTP to proceed:\n\n${otp}\n\nThis OTP is valid for 10 minutes. If you didn't request this, please ignore this email.\n\nThanks,\nThe HookStep Team`
         };
 
-        const response = await axios(options);
-        
-        console.log('Email sent successfully:', response.data);
+        // Send email
+        await transporter.sendMail(mailOptions);
+        console.log('Password reset OTP sent to:', email);
 
         res.status(200).json({
             success: true,
-            message: "Password reset OTP sent successfully",
+            message: "Password reset OTP sent successfully"
         });
 
     } catch (error) {
-        await OTP.deleteOne({ email });
-        console.error("Email Error:", error);
+        console.error('Error sending password reset OTP:', error);
         res.status(500).json({
             success: false,
             message: "Failed to send OTP",
-            error: error.toString(),
+            error: error.message
         });
     }
 });
@@ -447,25 +438,71 @@ const resetPassword = asyncHandler(async (req, res) => {
     const { email, otp, newPassword } = req.body;
 
     if (!email || !otp || !newPassword) {
-        return res.status(400).json({ message: "All fields are required" });
+        return res.status(400).json({ 
+            success: false,
+            message: "All fields are required" 
+        });
     }
 
     try {
-        const otpDoc = await OTP.findOne({ email });
+        // Find and validate OTP
+        const otpDoc = await OTP.findOne({ 
+            email,
+            otp
+        });
         
-        if (!otpDoc || otpDoc.otp !== otp) {
-            return res.status(401).json({ message: 'Invalid or expired OTP' });
+        if (!otpDoc) {
+            return res.status(401).json({ 
+                success: false,
+                message: 'Invalid OTP' 
+            });
         }
 
+        // Check if OTP is expired (if expiresAt field exists)
+        if (otpDoc.expiresAt && otpDoc.expiresAt < new Date()) {
+            return res.status(401).json({ 
+                success: false,
+                message: 'OTP has expired' 
+            });
+        }
+
+        // Find user
         const user = await User.findOne({ email });
         if (!user) {
-            return res.status(404).json({ message: "User not found" });
+            return res.status(404).json({ 
+                success: false,
+                message: "User not found" 
+            });
         }
 
+        // Update password
         user.password = newPassword;
         await user.save();
         
-        await OTP.deleteOne({ email });
+        // Delete the used OTP
+        await OTP.deleteOne({ _id: otpDoc._id });
+
+        // Send confirmation email
+        const mailOptions = {
+            from: `"${process.env.MAIL_FROM_NAME}" <${process.env.MAIL_FROM_ADDRESS}>`,
+            to: email,
+            subject: 'Password Updated Successfully - HookStep',
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+                    <h2 style="color: #1a73e8;">Password Updated Successfully</h2>
+                    <p>Hello ${user.name || 'User'},</p>
+                    <p>Your password has been successfully updated. If you did not make this change, please contact our support team immediately.</p>
+                    <p>For security reasons, we recommend that you keep your password secure and do not share it with anyone.</p>
+                    <p>Thanks,<br>The HookStep Team</p>
+                    <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;">
+                    <p style="font-size: 12px; color: #777;">This is an automated message, please do not reply to this email.</p>
+                </div>
+            `,
+            text: `Password Updated Successfully\n\nHello ${user.name || 'User'},\n\nYour password has been successfully updated. If you did not make this change, please contact our support team immediately.\n\nFor security reasons, we recommend that you keep your password secure and do not share it with anyone.\n\nThanks,\nThe HookStep Team`
+        };
+
+        await transporter.sendMail(mailOptions);
+        console.log('Password reset confirmation sent to:', email);
 
         res.status(200).json({
             success: true,
@@ -473,9 +510,11 @@ const resetPassword = asyncHandler(async (req, res) => {
         });
 
     } catch (error) {
+        console.error('Error resetting password:', error);
         res.status(500).json({
             success: false,
-            message: 'Password reset failed'
+            message: 'Password reset failed',
+            error: error.message
         });
     }
 });
